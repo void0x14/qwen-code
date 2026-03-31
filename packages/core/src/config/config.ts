@@ -227,7 +227,7 @@ export type ExtensionOriginSource = 'QwenCode' | 'Claude' | 'Gemini';
 
 export interface ExtensionInstallMetadata {
   source: string;
-  type: 'git' | 'local' | 'link' | 'github-release';
+  type: 'git' | 'local' | 'link' | 'github-release' | 'npm';
   originSource?: ExtensionOriginSource;
   releaseTag?: string; // Only present for github-release installs.
   ref?: string;

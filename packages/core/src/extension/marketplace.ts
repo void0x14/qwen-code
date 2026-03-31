@@ -27,6 +27,40 @@ export interface MarketplaceInstallResult {
 }
 
 /**
+ * Intercept web URLs from claudemarketplaces.com or smithery.ai
+ */
+async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | null> {
+  if (!url.includes('claudemarketplaces.com') && !url.includes('smithery.ai')) {
+    return null;
+  }
+
+  const content = await fetchUrl(url, { 'User-Agent': 'qwen-code' });
+  if (!content) return null;
+
+  // Regex for npx command
+  const npxRegex = /npx -y (@[a-zA-Z0-9_/-]+|[-a-zA-Z0-9_]+)/;
+  const npxMatch = content.match(npxRegex);
+  if (npxMatch) {
+    return {
+      source: npxMatch[1],
+      type: 'npm',
+    };
+  }
+
+  // Regex for github repo
+  const githubRegex = /https:\/\/github\.com\/([a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/;
+  const githubMatch = content.match(githubRegex);
+  if (githubMatch) {
+    return {
+      source: `https://github.com/${githubMatch[1]}`,
+      type: 'git',
+    };
+  }
+
+  return null;
+}
+
+/**
  * Parse the install source string into repo and optional pluginName.
  * Format: <repo>:<pluginName> where pluginName is optional
  * The colon separator is only treated as a pluginName delimiter when:
@@ -39,7 +73,7 @@ function parseSourceAndPluginName(source: string): {
 } {
   // Check if source contains a colon that could be a pluginName separator
   // We need to handle URL schemes that contain colons
-  const urlSchemes = ['http://', 'https://', 'git@', 'sso://'];
+  const urlSchemes = ['http://', 'https://', 'git@', 'sso://', 'npm:'];
 
   let repoEndIndex = source.length;
   let hasPluginName = false;
@@ -206,6 +240,15 @@ async function readLocalMarketplaceConfig(
 export async function parseInstallSource(
   source: string,
 ): Promise<ExtensionInstallMetadata> {
+  // Step 0: Check for npm: prefix
+  if (source.startsWith('npm:')) {
+    const packageName = source.substring(4);
+    return {
+      source: packageName,
+      type: 'npm',
+    };
+  }
+
   // Step 1: Parse source into repo and optional pluginName
   const { repo, pluginName } = parseSourceAndPluginName(source);
 
@@ -214,6 +257,15 @@ export async function parseInstallSource(
   let marketplaceConfig: ClaudeMarketplaceConfig | null = null;
 
   // Step 2: Determine repo type with correct priority order
+  // Priority 0: Check for intercepted web URLs
+  const intercepted = await interceptWebUrl(repo);
+  if (intercepted) {
+    return {
+      ...intercepted,
+      pluginName,
+    };
+  }
+
   // Priority 1: Check if it's a local path that exists
   let isLocalPath = false;
   try {
