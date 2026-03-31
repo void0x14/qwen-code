@@ -280,21 +280,30 @@ async function convertGeminiOrClaudeExtension(
       if (monorepoPluginDir) {
         const packageJsonPath = path.join(monorepoPluginDir, 'package.json');
         if (!fs.existsSync(packageJsonPath)) {
-          throw new Error(`UnresolvableMonorepoError: package.json not found in ${monorepoPluginDir}`);
+          throw new Error(
+            `UnresolvableMonorepoError: package.json not found in ${monorepoPluginDir}`,
+          );
         }
 
         let actualPackageName: string;
         try {
           const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
           if (!pkg.name) {
-            throw new Error(`UnresolvableMonorepoError: "name" field missing in ${packageJsonPath}`);
+            throw new Error(
+              `UnresolvableMonorepoError: "name" field missing in ${packageJsonPath}`,
+            );
           }
           actualPackageName = pkg.name;
         } catch (e) {
-          if (e instanceof Error && e.message.includes('UnresolvableMonorepoError')) {
+          if (
+            e instanceof Error &&
+            e.message.includes('UnresolvableMonorepoError')
+          ) {
             throw e;
           }
-          throw new Error(`UnresolvableMonorepoError: Failed to parse ${packageJsonPath}`);
+          throw new Error(
+            `UnresolvableMonorepoError: Failed to parse ${packageJsonPath}`,
+          );
         }
 
         const config: ExtensionConfig = {
