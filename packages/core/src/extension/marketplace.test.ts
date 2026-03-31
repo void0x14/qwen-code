@@ -279,4 +279,45 @@ describe('parseInstallSource', () => {
       expect(result.marketplaceConfig).toBeUndefined();
     });
   });
+
+  describe('web marketplace interception', () => {
+    it('preserves full claude mcp command including trailing args', async () => {
+      vi.mocked(https.get).mockImplementation((_url, _options, callback) => {
+        const mockRes = {
+          statusCode: 200,
+          on: vi.fn((event, handler) => {
+            if (event === 'data') {
+              handler(
+                Buffer.from(
+                  'Install with: claude mcp add seqthinking npx -y @modelcontextprotocol/server-sequential-thinking run --api-key $KEY',
+                ),
+              );
+            }
+            if (event === 'end') {
+              handler();
+            }
+          }),
+        };
+        if (typeof callback === 'function') {
+          callback(mockRes as never);
+        }
+        return { on: vi.fn() } as never;
+      });
+
+      const result = await parseInstallSource(
+        'https://claudemarketplaces.com/p/sequentialthinking',
+      );
+
+      expect(result.type).toBe('npm');
+      expect(result.pluginName).toBe('seqthinking');
+      expect(result.mcpCommand).toEqual([
+        'npx',
+        '-y',
+        '@modelcontextprotocol/server-sequential-thinking',
+        'run',
+        '--api-key',
+        '$KEY',
+      ]);
+    });
+  });
 });

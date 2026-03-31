@@ -59,18 +59,14 @@ async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | 
     const name = claudeMcpMatch[1];
     const fullCommand = claudeMcpMatch[2].trim();
 
-    // Split command into parts
+    // Keep the full command so required trailing args/subcommands are preserved.
     const commandParts = fullCommand.split(/\s+/);
-
-    // If it looks like an npx command, extract the package
-    const npxCmdRegex = /npx\s+(?:-y\s+)?([@a-zA-Z0-9_\-/]+)/;
-    const npxCmdMatch = fullCommand.match(npxCmdRegex);
 
     return {
       source: name,
       type: 'npm',
       pluginName: name,
-      mcpCommand: npxCmdMatch ? ['npx', '-y', npxCmdMatch[1]] : commandParts,
+      mcpCommand: commandParts,
     };
   }
 
