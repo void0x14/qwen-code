@@ -28,6 +28,7 @@ export interface MarketplaceInstallResult {
 
 /**
  * Intercept web URLs from claudemarketplaces.com or smithery.ai
+ * Strictly uses regex to find the npx installation command in the raw HTML.
  */
 async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | null> {
   if (!url.includes('claudemarketplaces.com') && !url.includes('smithery.ai')) {
@@ -35,11 +36,14 @@ async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | 
   }
 
   const content = await fetchUrl(url, { 'User-Agent': 'qwen-code' });
-  if (!content) return null;
+  if (!content) {
+    throw new Error('UnresolvableMarketplaceError: Failed to fetch the marketplace page content');
+  }
 
-  // Regex for npx command
-  const npxRegex = /npx -y (@[a-zA-Z0-9_/-]+|[-a-zA-Z0-9_]+)/;
+  // Strictly scan for: npx [-y] <package-name>
+  const npxRegex = /npx\s+(?:-y\s+)?([@a-zA-Z0-9_\-\/]+)/;
   const npxMatch = content.match(npxRegex);
+
   if (npxMatch) {
     return {
       source: npxMatch[1],
@@ -47,7 +51,7 @@ async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | 
     };
   }
 
-  // Regex for github repo
+  // Fallback check for github repo link if no npx command found
   const githubRegex = /https:\/\/github\.com\/([a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/;
   const githubMatch = content.match(githubRegex);
   if (githubMatch) {
@@ -57,7 +61,7 @@ async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | 
     };
   }
 
-  return null;
+  throw new Error('UnresolvableMarketplaceError: Cannot find npx installation command on the page');
 }
 
 /**
@@ -240,7 +244,7 @@ async function readLocalMarketplaceConfig(
 export async function parseInstallSource(
   source: string,
 ): Promise<ExtensionInstallMetadata> {
-  // Step 0: Check for npm: prefix
+  // Step 0: Check for npm: prefix - strictly strip it
   if (source.startsWith('npm:')) {
     const packageName = source.substring(4);
     return {
@@ -257,7 +261,7 @@ export async function parseInstallSource(
   let marketplaceConfig: ClaudeMarketplaceConfig | null = null;
 
   // Step 2: Determine repo type with correct priority order
-  // Priority 0: Check for intercepted web URLs
+  // Priority 0: Check for intercepted web URLs (Zero-Guessing Scraper)
   const intercepted = await interceptWebUrl(repo);
   if (intercepted) {
     return {
