@@ -30,23 +30,18 @@ export interface MarketplaceInstallResult {
  * Intercept web URLs and extract the exact installation command using Regex.
  * Implements a dynamic scraper with zero hardcoded assumptions.
  */
-async function interceptWebUrl(
-  url: string,
-): Promise<ExtensionInstallMetadata | null> {
+async function interceptWebUrl(url: string): Promise<ExtensionInstallMetadata | null> {
   if (!url.includes('claudemarketplaces.com') && !url.includes('smithery.ai')) {
     return null;
   }
 
   const content = await fetchUrl(url, { 'User-Agent': 'qwen-code' });
   if (!content) {
-    throw new Error(
-      'UnresolvableMarketplaceError: Failed to fetch the marketplace page content',
-    );
+    throw new Error('UnresolvableMarketplaceError: Failed to fetch the marketplace page content');
   }
 
-  // Pattern 1: Skills CLI (npx skills add <url> [--skill <name>])
-  const skillsRegex =
-    /npx\s+skills\s+add\s+(https:\/\/github\.com\/[^\s'"]+)(?:\s+--skill\s+([a-zA-Z0-9_-]+))?/;
+  // 1. Match Skills CLI: npx skills add <github-url> [--skill <name>]
+  const skillsRegex = /npx\s+skills\s+add\s+(https:\/\/github\.com\/[^\s'"]+)(?:\s+--skill\s+([a-zA-Z0-9_-]+))?/;
   const skillsMatch = content.match(skillsRegex);
   if (skillsMatch) {
     return {
@@ -56,40 +51,46 @@ async function interceptWebUrl(
     };
   }
 
-  // Pattern 2: Claude MCP (claude mcp add <name> <command>)
-  const claudeMcpRegex = /claude\s+mcp\s+add\s+([a-zA-Z0-9_-]+)\s+([^'"]+)/;
+  // 2. Match Claude MCP: claude mcp add <name> <command>
+  // We use a more restrictive pattern for the command to avoid matching HTML tags
+  const claudeMcpRegex = /claude\s+mcp\s+add\s+([a-zA-Z0-9_-]+)\s+([^<'"\s]+(?:\s+[^<'"\s]+)*)/;
   const claudeMcpMatch = content.match(claudeMcpRegex);
   if (claudeMcpMatch) {
-    // If the command starts with npx, extract the package name
-    const cmd = claudeMcpMatch[2].trim();
+    const name = claudeMcpMatch[1];
+    const fullCommand = claudeMcpMatch[2].trim();
+
+    // Split command into parts
+    const commandParts = fullCommand.split(/\s+/);
+
+    // If it looks like an npx command, extract the package
     const npxCmdRegex = /npx\s+(?:-y\s+)?([@a-zA-Z0-9_\-/]+)/;
-    const npxCmdMatch = cmd.match(npxCmdRegex);
+    const npxCmdMatch = fullCommand.match(npxCmdRegex);
 
     return {
-      source: npxCmdMatch ? npxCmdMatch[1] : cmd,
+      source: name,
       type: 'npm',
-      pluginName: claudeMcpMatch[1],
+      pluginName: name,
+      mcpCommand: npxCmdMatch ? ['npx', '-y', npxCmdMatch[1]] : commandParts,
     };
   }
 
-  // Pattern 3: Raw NPX (npx -y <package>)
+  // 3. Match Raw NPX: npx -y <package-name>
   const npxRegex = /npx\s+-y\s+([@a-zA-Z0-9_\-/]+)/;
   const npxMatch = content.match(npxRegex);
   if (npxMatch) {
+    const pkgName = npxMatch[1];
     return {
-      source: npxMatch[1],
+      source: pkgName,
       type: 'npm',
+      mcpCommand: ['npx', '-y', pkgName],
     };
   }
 
-  throw new Error(
-    'UnresolvableMarketplaceError: Cannot detect a valid Claude Code, Skill, or MCP installation command on this page.',
-  );
+  throw new Error('UnresolvableMarketplaceError: Cannot detect a valid Claude Code, Skill, or MCP installation command on this page.');
 }
 
 /**
  * Parse the install source string into repo and optional pluginName.
- * Format: <repo>:<pluginName> where pluginName is optional
  */
 function parseSourceAndPluginName(source: string): {
   repo: string;
@@ -227,9 +228,11 @@ export async function parseInstallSource(
   source: string,
 ): Promise<ExtensionInstallMetadata> {
   if (source.startsWith('npm:')) {
+    const pkgName = source.substring(4);
     return {
-      source: source.substring(4),
+      source: pkgName,
       type: 'npm',
+      mcpCommand: ['npx', '-y', pkgName],
     };
   }
 
@@ -252,7 +255,7 @@ export async function parseInstallSource(
     await stat(repo);
     isLocalPath = true;
   } catch {
-    // Expected if not a local path
+    // Not local
   }
 
   if (isLocalPath) {
@@ -264,7 +267,7 @@ export async function parseInstallSource(
       const { owner, repo: repoName } = parseGitHubRepoForReleases(repoSource);
       marketplaceConfig = await fetchGitHubMarketplaceConfig(owner, repoName);
     } catch {
-      // Not a GitHub URL
+      // Not GitHub
     }
   } else if (isOwnerRepoFormat(repo)) {
     repoSource = convertOwnerRepoToGitHubUrl(repo);

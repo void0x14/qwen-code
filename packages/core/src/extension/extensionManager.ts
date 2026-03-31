@@ -912,14 +912,23 @@ export class ExtensionManager {
           installMetadata.pluginName ||
           installMetadata.source.split('/').pop() ||
           installMetadata.source;
+
+        let mcpConfig: any;
+        if (installMetadata.mcpCommand && installMetadata.mcpCommand.length > 0) {
+          const [command, ...args] = installMetadata.mcpCommand;
+          mcpConfig = { command, args };
+        } else {
+          mcpConfig = {
+            command: 'npx',
+            args: ['-y', installMetadata.source],
+          };
+        }
+
         const config: ExtensionConfig = {
           name: pluginName,
           version: '1.0.0',
           mcpServers: {
-            [pluginName]: {
-              command: 'npx',
-              args: ['-y', installMetadata.source],
-            },
+            [pluginName]: mcpConfig,
           },
         };
         await fs.promises.writeFile(

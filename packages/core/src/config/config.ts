@@ -234,7 +234,7 @@ export interface ExtensionInstallMetadata {
   autoUpdate?: boolean;
   allowPreRelease?: boolean;
   marketplaceConfig?: ClaudeMarketplaceConfig;
-  pluginName?: string;
+  pluginName?: string; mcpCommand?: string[];
 }
 
 export const DEFAULT_TRUNCATE_TOOL_OUTPUT_THRESHOLD = 25_000;
