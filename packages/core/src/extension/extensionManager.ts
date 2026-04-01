@@ -266,12 +266,69 @@ async function convertGeminiOrClaudeExtension(
       .convertedDir;
     originSource = 'Gemini';
   } else if (pluginName) {
-    newExtensionDir = (
-      await convertClaudePluginPackage(extensionDir, pluginName)
-    ).convertedDir;
-    originSource = 'Claude';
+    try {
+      const result = await convertClaudePluginPackage(extensionDir, pluginName);
+      newExtensionDir = result.convertedDir;
+      originSource = 'Claude';
+    } catch (error) {
+      // Smart Monorepo Fallback
+      const monorepoPluginDir = [
+        path.join(extensionDir, 'src', pluginName),
+        path.join(extensionDir, pluginName),
+      ].find((d) => fs.existsSync(d) && fs.statSync(d).isDirectory());
+
+      if (monorepoPluginDir) {
+        const packageJsonPath = path.join(monorepoPluginDir, 'package.json');
+        if (!fs.existsSync(packageJsonPath)) {
+          throw new Error(
+            `UnresolvableMonorepoError: package.json not found in ${monorepoPluginDir}`,
+          );
+        }
+
+        let actualPackageName: string;
+        try {
+          const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+          if (!pkg.name) {
+            throw new Error(
+              `UnresolvableMonorepoError: "name" field missing in ${packageJsonPath}`,
+            );
+          }
+          actualPackageName = pkg.name;
+        } catch (e) {
+          if (
+            e instanceof Error &&
+            e.message.includes('UnresolvableMonorepoError')
+          ) {
+            throw e;
+          }
+          throw new Error(
+            `UnresolvableMonorepoError: Failed to parse ${packageJsonPath}`,
+          );
+        }
+
+        const config: ExtensionConfig = {
+          name: pluginName,
+          version: '1.0.0',
+          mcpServers: {
+            [pluginName]: {
+              command: 'npx',
+              args: ['-y', actualPackageName],
+            },
+          },
+        };
+
+        const tmpDir = await ExtensionStorage.createTmpDir();
+        await fs.promises.writeFile(
+          path.join(tmpDir, EXTENSIONS_CONFIG_FILENAME),
+          JSON.stringify(config, null, 2),
+        );
+        newExtensionDir = tmpDir;
+        originSource = 'QwenCode';
+      } else {
+        throw error;
+      }
+    }
   }
-  // Claude plugin conversion not yet implemented
   return { extensionDir: newExtensionDir, originSource };
 }
 
@@ -849,7 +906,37 @@ export class ExtensionManager {
         installMetadata.pluginName = pluginName;
       }
 
-      if (
+      if (installMetadata.type === 'npm') {
+        tempDir = await ExtensionStorage.createTmpDir();
+        const pluginName =
+          installMetadata.pluginName ||
+          installMetadata.source.split('/').pop() ||
+          installMetadata.source;
+
+        let mcpConfig: any;
+        if (installMetadata.mcpCommand && installMetadata.mcpCommand.length > 0) {
+          const [command, ...args] = installMetadata.mcpCommand;
+          mcpConfig = { command, args };
+        } else {
+          mcpConfig = {
+            command: 'npx',
+            args: ['-y', installMetadata.source],
+          };
+        }
+
+        const config: ExtensionConfig = {
+          name: pluginName,
+          version: '1.0.0',
+          mcpServers: {
+            [pluginName]: mcpConfig,
+          },
+        };
+        await fs.promises.writeFile(
+          path.join(tempDir, EXTENSIONS_CONFIG_FILENAME),
+          JSON.stringify(config, null, 2),
+        );
+        localSourcePath = tempDir;
+      } else if (
         installMetadata.type === 'git' ||
         installMetadata.type === 'github-release'
       ) {
